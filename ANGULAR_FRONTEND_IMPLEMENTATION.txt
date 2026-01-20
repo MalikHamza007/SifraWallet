@@ -1,0 +1,1928 @@
+# SIFRA Blockchain - Angular Frontend Implementation Guide
+# =========================================================
+# This file contains complete Angular implementation for integrating
+# the SIFRA blockchain backend APIs including authentication,
+# wallet management, and transactions.
+
+################################################################################
+#                        ⚠️ IMPORTANT INTEGRATION NOTE ⚠️                        #
+################################################################################
+#
+# BEFORE CREATING NEW COMPONENTS, CHECK YOUR EXISTING FRONTEND:
+#
+# 1. IF A COMPONENT ALREADY EXISTS (e.g., login, signup, dashboard):
+#    → Integrate the backend API calls into your EXISTING component
+#    → Copy only the relevant service methods and API calls
+#    → Adapt the code to match your existing component structure
+#    → DO NOT create duplicate components
+#
+# 2. IF A COMPONENT DOES NOT EXIST (e.g., recover-key, mnemonic-modal):
+#    → Create the new component using the code provided in this file
+#    → These are new features specific to blockchain functionality
+#
+# 3. FOR SERVICES:
+#    → If you have an existing ApiService/ApiCallService, ADD the new endpoints
+#    → If you have an existing AuthService, ADD the blockchain-specific methods
+#    → Reuse your existing HTTP client setup and interceptors
+#
+# 4. FOR INTERFACES/MODELS:
+#    → Add the new interfaces to your existing models folder
+#    → Extend existing interfaces if needed (don't replace)
+#
+# 5. PRIORITY ORDER:
+#    a) First, check what already exists in your frontend
+#    b) Copy only the API endpoint methods to your existing services
+#    c) Add the mnemonic/private key handling logic to your signup component
+#    d) Create only truly NEW components (recover-key, mnemonic modal)
+#    e) Add new routes only for new pages
+#
+# EXAMPLE: If you already have a LoginComponent:
+#    → Keep your existing LoginComponent
+#    → Add the login() method from AuthService to your existing auth service
+#    → Update your form to call the API and handle the response
+#    → Add wallet address storage after successful login
+#
+################################################################################
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1. Project Setup & Configuration
+2. Environment Configuration
+3. Core Services
+   - API Service (ADD these endpoints to your existing ApiService)
+   - Auth Service (ADD these methods to your existing AuthService)
+   - Wallet Service (NEW - create if doesn't exist)
+   - Transaction Service (NEW - create if doesn't exist)
+4. Auth Guards & Interceptors
+5. Components
+   - Login Component (INTEGRATE into existing or create new)
+   - Signup Component (INTEGRATE + add Mnemonic Warning Modal)
+   - Recover Key Component (NEW - blockchain specific)
+   - Dashboard Component (INTEGRATE into existing or create new)
+   - Wallet Component (NEW or INTEGRATE)
+   - Send Transaction Component (NEW - blockchain specific)
+   - Transaction History Component (NEW or INTEGRATE)
+6. Models/Interfaces (ADD to your existing models)
+7. Shared Components
+   - Mnemonic Display Modal (NEW - CRITICAL for signup)
+   - Loading Spinner (USE existing if available)
+   - Toast Notifications (USE existing if available)
+
+================================================================================
+1. PROJECT SETUP & CONFIGURATION
+================================================================================
+
+# Create new Angular project (if needed)
+ng new sifra-wallet --routing --style=scss
+
+# Install required packages
+npm install @angular/material @angular/cdk
+npm install ngx-toastr
+npm install qrcode --save
+npm install @types/qrcode --save-dev
+
+# Generate required components
+ng generate service services/api
+ng generate service services/auth
+ng generate service services/wallet
+ng generate service services/transaction
+ng generate guard guards/auth
+ng generate interceptor interceptors/auth
+ng generate component components/login
+ng generate component components/signup
+ng generate component components/recover-key
+ng generate component components/dashboard
+ng generate component components/wallet
+ng generate component components/send-transaction
+ng generate component components/transaction-history
+ng generate component shared/mnemonic-modal
+ng generate component shared/loading
+
+================================================================================
+2. ENVIRONMENT CONFIGURATION
+================================================================================
+
+// src/environments/environment.ts
+// --------------------------------
+export const environment = {
+  production: false,
+  apiUrl: 'http://127.0.0.1:8000/api/blockchain'
+};
+
+// src/environments/environment.prod.ts
+// ------------------------------------
+export const environment = {
+  production: true,
+  apiUrl: 'https://your-production-domain.com/api/blockchain'
+};
+
+================================================================================
+3. CORE SERVICES
+================================================================================
+
+// ============================================================================
+// src/app/services/api.service.ts
+// ============================================================================
+import { Injectable } from '@angular/core';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import { environment } from '../../environments/environment';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class ApiService {
+  private baseUrl = environment.apiUrl;
+
+  constructor(private http: HttpClient) {}
+
+  // Generic HTTP methods
+  get<T>(endpoint: string): Observable<T> {
+    return this.http.get<T>(`${this.baseUrl}${endpoint}`);
+  }
+
+  post<T>(endpoint: string, data: any): Observable<T> {
+    return this.http.post<T>(`${this.baseUrl}${endpoint}`, data);
+  }
+
+  // =========================================================================
+  // AUTH ENDPOINTS
+  // =========================================================================
+  
+  signup(data: SignupRequest): Observable<SignupResponse> {
+    return this.post<SignupResponse>('/auth/signup/', data);
+  }
+
+  login(data: LoginRequest): Observable<LoginResponse> {
+    return this.post<LoginResponse>('/auth/login/', data);
+  }
+
+  logout(): Observable<any> {
+    return this.post('/auth/logout/', {});
+  }
+
+  getCurrentUser(): Observable<UserResponse> {
+    return this.get<UserResponse>('/auth/me/');
+  }
+
+  recoverKey(mnemonic: string): Observable<RecoverResponse> {
+    return this.post<RecoverResponse>('/auth/recover/', { mnemonic });
+  }
+
+  // =========================================================================
+  // WALLET ENDPOINTS
+  // =========================================================================
+
+  getWallet(address: string): Observable<WalletInfo> {
+    return this.get<WalletInfo>(`/wallet/${address}/`);
+  }
+
+  getBalance(address: string): Observable<BalanceResponse> {
+    return this.get<BalanceResponse>(`/wallet/${address}/balance/`);
+  }
+
+  getWalletTransactions(address: string): Observable<WalletTransactionsResponse> {
+    return this.get<WalletTransactionsResponse>(`/wallet/${address}/transactions/`);
+  }
+
+  generateKeypair(): Observable<KeypairResponse> {
+    return this.get<KeypairResponse>('/keypair/');
+  }
+
+  // =========================================================================
+  // TRANSACTION ENDPOINTS
+  // =========================================================================
+
+  submitTransaction(data: TransactionRequest): Observable<TransactionResponse> {
+    return this.post<TransactionResponse>('/transaction/', data);
+  }
+
+  getTransaction(txHash: string): Observable<Transaction> {
+    return this.get<Transaction>(`/transaction/${txHash}/`);
+  }
+
+  getPendingTransactions(): Observable<PendingTransactionsResponse> {
+    return this.get<PendingTransactionsResponse>('/transactions/pending/');
+  }
+
+  // =========================================================================
+  // BLOCKCHAIN ENDPOINTS
+  // =========================================================================
+
+  getChainInfo(): Observable<ChainInfo> {
+    return this.get<ChainInfo>('/info/');
+  }
+
+  getChain(): Observable<ChainResponse> {
+    return this.get<ChainResponse>('/chain/');
+  }
+
+  validateChain(): Observable<ValidationResponse> {
+    return this.get<ValidationResponse>('/validate/');
+  }
+
+  getBlock(index: number): Observable<Block> {
+    return this.get<Block>(`/block/${index}/`);
+  }
+
+  createGenesis(): Observable<any> {
+    return this.post('/genesis/', {});
+  }
+
+  mineBlock(transactionIds?: number[]): Observable<MineResponse> {
+    return this.post<MineResponse>('/mine/', { transaction_ids: transactionIds });
+  }
+}
+
+
+// ============================================================================
+// src/app/services/auth.service.ts
+// ============================================================================
+import { Injectable } from '@angular/core';
+import { BehaviorSubject, Observable, tap } from 'rxjs';
+import { Router } from '@angular/router';
+import { ApiService } from './api.service';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class AuthService {
+  private currentUserSubject = new BehaviorSubject<User | null>(null);
+  public currentUser$ = this.currentUserSubject.asObservable();
+  
+  private walletSubject = new BehaviorSubject<WalletCredentials | null>(null);
+  public wallet$ = this.walletSubject.asObservable();
+
+  constructor(
+    private api: ApiService,
+    private router: Router
+  ) {
+    this.loadStoredUser();
+  }
+
+  private loadStoredUser(): void {
+    const storedUser = localStorage.getItem('sifra_user');
+    const storedWallet = localStorage.getItem('sifra_wallet');
+    
+    if (storedUser) {
+      this.currentUserSubject.next(JSON.parse(storedUser));
+    }
+    if (storedWallet) {
+      this.walletSubject.next(JSON.parse(storedWallet));
+    }
+  }
+
+  get currentUser(): User | null {
+    return this.currentUserSubject.value;
+  }
+
+  get wallet(): WalletCredentials | null {
+    return this.walletSubject.value;
+  }
+
+  get isAuthenticated(): boolean {
+    return !!this.currentUser;
+  }
+
+  /**
+   * Register a new user
+   * 
+   * ⚠️ IMPORTANT: This returns mnemonic and private key ONLY ONCE!
+   * The frontend MUST display these to the user with a strong warning.
+   */
+  signup(data: SignupRequest): Observable<SignupResponse> {
+    return this.api.signup(data).pipe(
+      tap(response => {
+        // Store user info (but NOT private key or mnemonic!)
+        const user: User = response.user;
+        const wallet: WalletCredentials = {
+          address: response.wallet.address,
+          // We store the address only, NOT the private key
+        };
+        
+        localStorage.setItem('sifra_user', JSON.stringify(user));
+        localStorage.setItem('sifra_wallet', JSON.stringify(wallet));
+        
+        this.currentUserSubject.next(user);
+        this.walletSubject.next(wallet);
+        
+        // NOTE: The component must handle displaying mnemonic + private key!
+      })
+    );
+  }
+
+  /**
+   * Login existing user
+   */
+  login(data: LoginRequest): Observable<LoginResponse> {
+    return this.api.login(data).pipe(
+      tap(response => {
+        const user: User = response.user;
+        const wallet: WalletCredentials = {
+          address: response.wallet.address,
+        };
+        
+        localStorage.setItem('sifra_user', JSON.stringify(user));
+        localStorage.setItem('sifra_wallet', JSON.stringify(wallet));
+        
+        this.currentUserSubject.next(user);
+        this.walletSubject.next(wallet);
+      })
+    );
+  }
+
+  /**
+   * Logout current user
+   */
+  logout(): void {
+    this.api.logout().subscribe({
+      next: () => {
+        this.clearSession();
+      },
+      error: () => {
+        // Clear session anyway on error
+        this.clearSession();
+      }
+    });
+  }
+
+  private clearSession(): void {
+    localStorage.removeItem('sifra_user');
+    localStorage.removeItem('sifra_wallet');
+    this.currentUserSubject.next(null);
+    this.walletSubject.next(null);
+    this.router.navigate(['/login']);
+  }
+
+  /**
+   * Recover private key from mnemonic phrase
+   */
+  recoverKey(mnemonic: string): Observable<RecoverResponse> {
+    return this.api.recoverKey(mnemonic);
+  }
+
+  /**
+   * Store private key temporarily in memory (for signing transactions)
+   * ⚠️ WARNING: This should only be stored temporarily and cleared after use!
+   */
+  private tempPrivateKey: string | null = null;
+
+  setTempPrivateKey(privateKey: string): void {
+    this.tempPrivateKey = privateKey;
+  }
+
+  getTempPrivateKey(): string | null {
+    return this.tempPrivateKey;
+  }
+
+  clearTempPrivateKey(): void {
+    this.tempPrivateKey = null;
+  }
+}
+
+
+// ============================================================================
+// src/app/services/wallet.service.ts
+// ============================================================================
+import { Injectable } from '@angular/core';
+import { Observable, BehaviorSubject, interval, switchMap, startWith } from 'rxjs';
+import { ApiService } from './api.service';
+import { AuthService } from './auth.service';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class WalletService {
+  private balanceSubject = new BehaviorSubject<string>('0');
+  public balance$ = this.balanceSubject.asObservable();
+
+  constructor(
+    private api: ApiService,
+    private auth: AuthService
+  ) {
+    // Auto-refresh balance every 30 seconds when logged in
+    this.auth.wallet$.pipe(
+      switchMap(wallet => {
+        if (wallet) {
+          return interval(30000).pipe(
+            startWith(0),
+            switchMap(() => this.refreshBalance())
+          );
+        }
+        return [];
+      })
+    ).subscribe();
+  }
+
+  refreshBalance(): Observable<BalanceResponse> {
+    const wallet = this.auth.wallet;
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+    
+    return this.api.getBalance(wallet.address).pipe(
+      tap(response => this.balanceSubject.next(response.balance))
+    );
+  }
+
+  getWalletInfo(address: string): Observable<WalletInfo> {
+    return this.api.getWallet(address);
+  }
+
+  getTransactionHistory(): Observable<WalletTransactionsResponse> {
+    const wallet = this.auth.wallet;
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+    return this.api.getWalletTransactions(wallet.address);
+  }
+}
+
+
+// ============================================================================
+// src/app/services/transaction.service.ts
+// ============================================================================
+import { Injectable } from '@angular/core';
+import { Observable } from 'rxjs';
+import { ApiService } from './api.service';
+import { AuthService } from './auth.service';
+
+// For client-side transaction signing, you need to include a crypto library
+// Option 1: Use Web Crypto API (built-in)
+// Option 2: Use elliptic library: npm install elliptic @types/elliptic
+
+@Injectable({
+  providedIn: 'root'
+})
+export class TransactionService {
+  
+  constructor(
+    private api: ApiService,
+    private auth: AuthService
+  ) {}
+
+  /**
+   * Create transaction payload for signing
+   * Format: "sender:receiver:amount"
+   */
+  createPayload(sender: string, receiver: string, amount: string): string {
+    return `${sender}:${receiver}:${amount}`;
+  }
+
+  /**
+   * Sign a transaction with private key
+   * 
+   * ⚠️ This should be done client-side using the elliptic library
+   * 
+   * npm install elliptic @types/elliptic
+   */
+  async signTransaction(payload: string, privateKeyHex: string): Promise<string> {
+    // Import elliptic for ECDSA signing (same curve as backend: secp256k1)
+    const EC = (await import('elliptic')).ec;
+    const ec = new EC('secp256k1');
+    
+    // Create key from private key hex
+    const key = ec.keyFromPrivate(privateKeyHex, 'hex');
+    
+    // Sign the payload (hash it first with SHA-256)
+    const msgHash = await this.sha256(payload);
+    const signature = key.sign(msgHash);
+    
+    // Return DER-encoded signature as hex
+    return signature.toDER('hex');
+  }
+
+  /**
+   * SHA-256 hash using Web Crypto API
+   */
+  private async sha256(message: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  /**
+   * Send SIFRA coins to another wallet
+   * 
+   * @param receiverAddress - Recipient's wallet address (public key)
+   * @param amount - Amount to send
+   * @param privateKey - Sender's private key (for signing)
+   */
+  async sendTransaction(
+    receiverAddress: string, 
+    amount: string, 
+    privateKey: string
+  ): Promise<Observable<TransactionResponse>> {
+    const wallet = this.auth.wallet;
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    const senderAddress = wallet.address;
+    
+    // Create payload and sign it
+    const payload = this.createPayload(senderAddress, receiverAddress, amount);
+    const signature = await this.signTransaction(payload, privateKey);
+    
+    // Submit to API
+    return this.api.submitTransaction({
+      sender: senderAddress,
+      receiver: receiverAddress,
+      amount: amount,
+      signature: signature
+    });
+  }
+
+  /**
+   * Get transaction details
+   */
+  getTransaction(txHash: string): Observable<Transaction> {
+    return this.api.getTransaction(txHash);
+  }
+
+  /**
+   * Get pending transactions
+   */
+  getPendingTransactions(): Observable<PendingTransactionsResponse> {
+    return this.api.getPendingTransactions();
+  }
+}
+
+
+================================================================================
+4. AUTH GUARDS & INTERCEPTORS
+================================================================================
+
+// ============================================================================
+// src/app/guards/auth.guard.ts
+// ============================================================================
+import { Injectable } from '@angular/core';
+import { CanActivate, Router, UrlTree } from '@angular/router';
+import { AuthService } from '../services/auth.service';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class AuthGuard implements CanActivate {
+  
+  constructor(
+    private auth: AuthService,
+    private router: Router
+  ) {}
+
+  canActivate(): boolean | UrlTree {
+    if (this.auth.isAuthenticated) {
+      return true;
+    }
+    return this.router.createUrlTree(['/login']);
+  }
+}
+
+
+// ============================================================================
+// src/app/interceptors/auth.interceptor.ts
+// ============================================================================
+import { Injectable } from '@angular/core';
+import {
+  HttpRequest,
+  HttpHandler,
+  HttpEvent,
+  HttpInterceptor,
+  HttpErrorResponse
+} from '@angular/common/http';
+import { Observable, throwError } from 'rxjs';
+import { catchError } from 'rxjs/operators';
+import { Router } from '@angular/router';
+
+@Injectable()
+export class AuthInterceptor implements HttpInterceptor {
+
+  constructor(private router: Router) {}
+
+  intercept(request: HttpRequest<unknown>, next: HttpHandler): Observable<HttpEvent<unknown>> {
+    // Add withCredentials for session-based auth
+    request = request.clone({
+      withCredentials: true
+    });
+
+    return next.handle(request).pipe(
+      catchError((error: HttpErrorResponse) => {
+        if (error.status === 401) {
+          // Redirect to login on unauthorized
+          this.router.navigate(['/login']);
+        }
+        return throwError(() => error);
+      })
+    );
+  }
+}
+
+
+================================================================================
+5. COMPONENTS
+================================================================================
+
+// ============================================================================
+// src/app/components/signup/signup.component.ts
+// ============================================================================
+import { Component } from '@angular/core';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
+import { AuthService } from '../../services/auth.service';
+
+@Component({
+  selector: 'app-signup',
+  templateUrl: './signup.component.html',
+  styleUrls: ['./signup.component.scss']
+})
+export class SignupComponent {
+  signupForm: FormGroup;
+  isLoading = false;
+  error = '';
+  
+  // ⚠️ CRITICAL: Store signup response to show mnemonic
+  signupResponse: SignupResponse | null = null;
+  showMnemonicModal = false;
+  mnemonicConfirmed = false;
+
+  constructor(
+    private fb: FormBuilder,
+    private auth: AuthService,
+    private router: Router
+  ) {
+    this.signupForm = this.fb.group({
+      username: ['', [Validators.required, Validators.minLength(3)]],
+      email: ['', [Validators.required, Validators.email]],
+      password: ['', [Validators.required, Validators.minLength(8)]],
+      confirm_password: ['', [Validators.required]]
+    }, { validators: this.passwordMatchValidator });
+  }
+
+  passwordMatchValidator(form: FormGroup) {
+    const password = form.get('password');
+    const confirmPassword = form.get('confirm_password');
+    
+    if (password && confirmPassword && password.value !== confirmPassword.value) {
+      confirmPassword.setErrors({ passwordMismatch: true });
+      return { passwordMismatch: true };
+    }
+    return null;
+  }
+
+  onSubmit(): void {
+    if (this.signupForm.invalid) return;
+    
+    this.isLoading = true;
+    this.error = '';
+    
+    this.auth.signup(this.signupForm.value).subscribe({
+      next: (response) => {
+        this.isLoading = false;
+        this.signupResponse = response;
+        this.showMnemonicModal = true;
+        // ⚠️ Don't navigate yet! User must save mnemonic first!
+      },
+      error: (err) => {
+        this.isLoading = false;
+        this.error = err.error?.username?.[0] || 
+                     err.error?.email?.[0] || 
+                     err.error?.password?.[0] ||
+                     err.error?.non_field_errors?.[0] ||
+                     'Signup failed. Please try again.';
+      }
+    });
+  }
+
+  onMnemonicConfirmed(): void {
+    this.mnemonicConfirmed = true;
+    this.showMnemonicModal = false;
+    this.router.navigate(['/dashboard']);
+  }
+
+  copyToClipboard(text: string): void {
+    navigator.clipboard.writeText(text);
+  }
+}
+
+
+// ============================================================================
+// src/app/components/signup/signup.component.html
+// ============================================================================
+/*
+<div class="signup-container">
+  <div class="signup-card">
+    <h1>Create SIFRA Wallet</h1>
+    <p class="subtitle">Join the decentralized future</p>
+    
+    <form [formGroup]="signupForm" (ngSubmit)="onSubmit()">
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input 
+          type="text" 
+          id="username" 
+          formControlName="username"
+          placeholder="Choose a username">
+        <span class="error" *ngIf="signupForm.get('username')?.touched && signupForm.get('username')?.errors?.['required']">
+          Username is required
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input 
+          type="email" 
+          id="email" 
+          formControlName="email"
+          placeholder="your@email.com">
+        <span class="error" *ngIf="signupForm.get('email')?.touched && signupForm.get('email')?.errors?.['email']">
+          Please enter a valid email
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input 
+          type="password" 
+          id="password" 
+          formControlName="password"
+          placeholder="Min 8 characters">
+      </div>
+      
+      <div class="form-group">
+        <label for="confirm_password">Confirm Password</label>
+        <input 
+          type="password" 
+          id="confirm_password" 
+          formControlName="confirm_password"
+          placeholder="Confirm your password">
+        <span class="error" *ngIf="signupForm.get('confirm_password')?.errors?.['passwordMismatch']">
+          Passwords do not match
+        </span>
+      </div>
+      
+      <div class="error-message" *ngIf="error">{{ error }}</div>
+      
+      <button type="submit" [disabled]="signupForm.invalid || isLoading" class="btn-primary">
+        <span *ngIf="!isLoading">Create Wallet</span>
+        <span *ngIf="isLoading">Creating...</span>
+      </button>
+    </form>
+    
+    <p class="login-link">
+      Already have an account? <a routerLink="/login">Login</a>
+    </p>
+  </div>
+</div>
+
+<!-- ⚠️ CRITICAL: Mnemonic Display Modal -->
+<div class="modal-overlay" *ngIf="showMnemonicModal">
+  <div class="mnemonic-modal">
+    <div class="warning-header">
+      <span class="warning-icon">⚠️</span>
+      <h2>SAVE YOUR RECOVERY PHRASE!</h2>
+    </div>
+    
+    <div class="warning-box">
+      <p><strong>IMPORTANT:</strong> This is the ONLY time you will see this information!</p>
+      <p>Write down your 12-word recovery phrase and store it in a safe place.</p>
+      <p>If you lose this phrase, you will <strong>permanently lose access</strong> to your funds!</p>
+    </div>
+    
+    <div class="mnemonic-section">
+      <h3>Your 12-Word Recovery Phrase</h3>
+      <div class="mnemonic-words">
+        <span 
+          class="word" 
+          *ngFor="let word of signupResponse?.wallet?.mnemonic?.split(' '); let i = index">
+          {{ i + 1 }}. {{ word }}
+        </span>
+      </div>
+      <button class="btn-copy" (click)="copyToClipboard(signupResponse?.wallet?.mnemonic || '')">
+        📋 Copy Mnemonic
+      </button>
+    </div>
+    
+    <div class="private-key-section">
+      <h3>Your Private Key</h3>
+      <p class="warning-text">⚠️ Never share this with anyone!</p>
+      <div class="private-key-display">
+        {{ signupResponse?.wallet?.private_key }}
+      </div>
+      <button class="btn-copy" (click)="copyToClipboard(signupResponse?.wallet?.private_key || '')">
+        📋 Copy Private Key
+      </button>
+    </div>
+    
+    <div class="wallet-address-section">
+      <h3>Your Wallet Address</h3>
+      <p class="info-text">Share this to receive SIFRA coins</p>
+      <div class="address-display">
+        {{ signupResponse?.wallet?.address }}
+      </div>
+      <button class="btn-copy" (click)="copyToClipboard(signupResponse?.wallet?.address || '')">
+        📋 Copy Address
+      </button>
+    </div>
+    
+    <div class="confirmation-section">
+      <label class="checkbox-container">
+        <input type="checkbox" [(ngModel)]="mnemonicConfirmed">
+        <span class="checkmark"></span>
+        I have safely stored my recovery phrase and private key
+      </label>
+      
+      <button 
+        class="btn-primary" 
+        [disabled]="!mnemonicConfirmed"
+        (click)="onMnemonicConfirmed()">
+        I've Saved My Recovery Phrase → Continue
+      </button>
+    </div>
+  </div>
+</div>
+*/
+
+
+// ============================================================================
+// src/app/components/login/login.component.ts
+// ============================================================================
+import { Component } from '@angular/core';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
+import { AuthService } from '../../services/auth.service';
+
+@Component({
+  selector: 'app-login',
+  templateUrl: './login.component.html',
+  styleUrls: ['./login.component.scss']
+})
+export class LoginComponent {
+  loginForm: FormGroup;
+  isLoading = false;
+  error = '';
+
+  constructor(
+    private fb: FormBuilder,
+    private auth: AuthService,
+    private router: Router
+  ) {
+    this.loginForm = this.fb.group({
+      username: ['', Validators.required],
+      password: ['', Validators.required]
+    });
+  }
+
+  onSubmit(): void {
+    if (this.loginForm.invalid) return;
+    
+    this.isLoading = true;
+    this.error = '';
+    
+    this.auth.login(this.loginForm.value).subscribe({
+      next: () => {
+        this.isLoading = false;
+        this.router.navigate(['/dashboard']);
+      },
+      error: (err) => {
+        this.isLoading = false;
+        this.error = err.error?.non_field_errors?.[0] || 
+                     'Invalid username or password';
+      }
+    });
+  }
+}
+
+
+// ============================================================================
+// src/app/components/login/login.component.html
+// ============================================================================
+/*
+<div class="login-container">
+  <div class="login-card">
+    <h1>Welcome Back</h1>
+    <p class="subtitle">Login to your SIFRA Wallet</p>
+    
+    <form [formGroup]="loginForm" (ngSubmit)="onSubmit()">
+      <div class="form-group">
+        <label for="username">Username or Email</label>
+        <input 
+          type="text" 
+          id="username" 
+          formControlName="username"
+          placeholder="Enter username or email">
+      </div>
+      
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input 
+          type="password" 
+          id="password" 
+          formControlName="password"
+          placeholder="Enter your password">
+      </div>
+      
+      <div class="error-message" *ngIf="error">{{ error }}</div>
+      
+      <button type="submit" [disabled]="loginForm.invalid || isLoading" class="btn-primary">
+        <span *ngIf="!isLoading">Login</span>
+        <span *ngIf="isLoading">Logging in...</span>
+      </button>
+    </form>
+    
+    <div class="links">
+      <a routerLink="/recover">Forgot private key? Recover with mnemonic</a>
+      <p>Don't have an account? <a routerLink="/signup">Create Wallet</a></p>
+    </div>
+  </div>
+</div>
+*/
+
+
+// ============================================================================
+// src/app/components/recover-key/recover-key.component.ts
+// ============================================================================
+import { Component } from '@angular/core';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { AuthService } from '../../services/auth.service';
+
+@Component({
+  selector: 'app-recover-key',
+  templateUrl: './recover-key.component.html',
+  styleUrls: ['./recover-key.component.scss']
+})
+export class RecoverKeyComponent {
+  recoverForm: FormGroup;
+  isLoading = false;
+  error = '';
+  recoveredData: RecoverResponse | null = null;
+
+  constructor(
+    private fb: FormBuilder,
+    private auth: AuthService
+  ) {
+    this.recoverForm = this.fb.group({
+      mnemonic: ['', [Validators.required, this.mnemonicValidator]]
+    });
+  }
+
+  mnemonicValidator(control: any) {
+    const words = control.value?.trim().split(/\s+/);
+    if (words && words.length !== 12) {
+      return { invalidMnemonic: 'Must be exactly 12 words' };
+    }
+    return null;
+  }
+
+  onSubmit(): void {
+    if (this.recoverForm.invalid) return;
+    
+    this.isLoading = true;
+    this.error = '';
+    this.recoveredData = null;
+    
+    const mnemonic = this.recoverForm.value.mnemonic.trim().toLowerCase();
+    
+    this.auth.recoverKey(mnemonic).subscribe({
+      next: (response) => {
+        this.isLoading = false;
+        this.recoveredData = response;
+      },
+      error: (err) => {
+        this.isLoading = false;
+        this.error = err.error?.mnemonic?.[0] || 
+                     'Invalid mnemonic phrase. Please check and try again.';
+      }
+    });
+  }
+
+  copyToClipboard(text: string): void {
+    navigator.clipboard.writeText(text);
+  }
+}
+
+
+// ============================================================================
+// src/app/components/recover-key/recover-key.component.html
+// ============================================================================
+/*
+<div class="recover-container">
+  <div class="recover-card">
+    <h1>Recover Your Private Key</h1>
+    <p class="subtitle">Enter your 12-word recovery phrase</p>
+    
+    <form [formGroup]="recoverForm" (ngSubmit)="onSubmit()">
+      <div class="form-group">
+        <label for="mnemonic">Recovery Phrase (12 words)</label>
+        <textarea 
+          id="mnemonic" 
+          formControlName="mnemonic"
+          rows="4"
+          placeholder="word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12">
+        </textarea>
+        <span class="error" *ngIf="recoverForm.get('mnemonic')?.touched && recoverForm.get('mnemonic')?.errors?.['invalidMnemonic']">
+          Must be exactly 12 words
+        </span>
+      </div>
+      
+      <div class="error-message" *ngIf="error">{{ error }}</div>
+      
+      <button type="submit" [disabled]="recoverForm.invalid || isLoading" class="btn-primary">
+        <span *ngIf="!isLoading">Recover Key</span>
+        <span *ngIf="isLoading">Recovering...</span>
+      </button>
+    </form>
+    
+    <!-- Recovered Data Display -->
+    <div class="recovered-data" *ngIf="recoveredData">
+      <div class="success-header">
+        <span class="success-icon">✅</span>
+        <h2>Key Recovered Successfully!</h2>
+      </div>
+      
+      <div class="data-section">
+        <h3>Your Private Key</h3>
+        <div class="key-display">{{ recoveredData.private_key }}</div>
+        <button class="btn-copy" (click)="copyToClipboard(recoveredData.private_key)">
+          📋 Copy Private Key
+        </button>
+      </div>
+      
+      <div class="data-section">
+        <h3>Your Public Key / Wallet Address</h3>
+        <div class="key-display">{{ recoveredData.public_key }}</div>
+        <button class="btn-copy" (click)="copyToClipboard(recoveredData.public_key)">
+          📋 Copy Address
+        </button>
+      </div>
+      
+      <div class="wallet-status" *ngIf="recoveredData.wallet_exists">
+        <p class="status-found">✅ Wallet found in SIFRA network</p>
+        <p>Balance: <strong>{{ recoveredData.balance }} SIFRA</strong></p>
+      </div>
+      
+      <div class="wallet-status" *ngIf="!recoveredData.wallet_exists">
+        <p class="status-not-found">⚠️ This wallet is not registered on the network</p>
+        <p>You can still use these keys, but you'll need to register the wallet first.</p>
+      </div>
+    </div>
+    
+    <p class="login-link">
+      <a routerLink="/login">← Back to Login</a>
+    </p>
+  </div>
+</div>
+*/
+
+
+// ============================================================================
+// src/app/components/send-transaction/send-transaction.component.ts
+// ============================================================================
+import { Component } from '@angular/core';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { TransactionService } from '../../services/transaction.service';
+import { WalletService } from '../../services/wallet.service';
+import { AuthService } from '../../services/auth.service';
+
+@Component({
+  selector: 'app-send-transaction',
+  templateUrl: './send-transaction.component.html',
+  styleUrls: ['./send-transaction.component.scss']
+})
+export class SendTransactionComponent {
+  sendForm: FormGroup;
+  isLoading = false;
+  error = '';
+  success = '';
+  txHash = '';
+  
+  // For entering private key
+  showPrivateKeyInput = false;
+
+  constructor(
+    private fb: FormBuilder,
+    private txService: TransactionService,
+    private walletService: WalletService,
+    public auth: AuthService
+  ) {
+    this.sendForm = this.fb.group({
+      receiver: ['', [Validators.required, Validators.minLength(128), Validators.maxLength(128)]],
+      amount: ['', [Validators.required, Validators.min(0.00000001)]],
+      privateKey: ['', [Validators.required, Validators.minLength(64), Validators.maxLength(64)]]
+    });
+  }
+
+  async onSubmit(): Promise<void> {
+    if (this.sendForm.invalid) return;
+    
+    this.isLoading = true;
+    this.error = '';
+    this.success = '';
+    
+    const { receiver, amount, privateKey } = this.sendForm.value;
+    
+    try {
+      const txObservable = await this.txService.sendTransaction(receiver, amount, privateKey);
+      
+      txObservable.subscribe({
+        next: (response) => {
+          this.isLoading = false;
+          this.success = 'Transaction submitted successfully!';
+          this.txHash = response.tx_hash;
+          this.sendForm.reset();
+          
+          // Refresh balance
+          this.walletService.refreshBalance().subscribe();
+        },
+        error: (err) => {
+          this.isLoading = false;
+          this.error = err.error?.error || 'Transaction failed. Please try again.';
+        }
+      });
+    } catch (err: any) {
+      this.isLoading = false;
+      this.error = err.message || 'Failed to sign transaction';
+    }
+  }
+
+  // Paste from clipboard
+  async pasteAddress(): Promise<void> {
+    const text = await navigator.clipboard.readText();
+    this.sendForm.patchValue({ receiver: text });
+  }
+}
+
+
+// ============================================================================
+// src/app/components/send-transaction/send-transaction.component.html
+// ============================================================================
+/*
+<div class="send-container">
+  <div class="send-card">
+    <h2>Send SIFRA</h2>
+    
+    <form [formGroup]="sendForm" (ngSubmit)="onSubmit()">
+      <div class="form-group">
+        <label for="receiver">Recipient Address</label>
+        <div class="input-with-action">
+          <input 
+            type="text" 
+            id="receiver" 
+            formControlName="receiver"
+            placeholder="Enter recipient's wallet address (128 characters)">
+          <button type="button" class="btn-paste" (click)="pasteAddress()">📋 Paste</button>
+        </div>
+        <span class="error" *ngIf="sendForm.get('receiver')?.touched && sendForm.get('receiver')?.errors">
+          Valid wallet address is required (128 characters)
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label for="amount">Amount (SIFRA)</label>
+        <input 
+          type="number" 
+          id="amount" 
+          formControlName="amount"
+          placeholder="0.00000000"
+          step="0.00000001"
+          min="0.00000001">
+        <span class="error" *ngIf="sendForm.get('amount')?.touched && sendForm.get('amount')?.errors">
+          Amount must be greater than 0
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label for="privateKey">Your Private Key</label>
+        <div class="warning-box">
+          ⚠️ Your private key is used to sign this transaction locally. 
+          It is NOT sent to the server.
+        </div>
+        <input 
+          type="password" 
+          id="privateKey" 
+          formControlName="privateKey"
+          placeholder="Enter your private key (64 characters)">
+        <span class="helper-text">
+          Don't have your private key? 
+          <a routerLink="/recover">Recover it with your mnemonic phrase</a>
+        </span>
+      </div>
+      
+      <div class="error-message" *ngIf="error">{{ error }}</div>
+      
+      <div class="success-message" *ngIf="success">
+        {{ success }}
+        <p *ngIf="txHash">Transaction Hash: <code>{{ txHash }}</code></p>
+      </div>
+      
+      <button type="submit" [disabled]="sendForm.invalid || isLoading" class="btn-primary">
+        <span *ngIf="!isLoading">Send SIFRA</span>
+        <span *ngIf="isLoading">Sending...</span>
+      </button>
+    </form>
+  </div>
+</div>
+*/
+
+
+// ============================================================================
+// src/app/components/dashboard/dashboard.component.ts
+// ============================================================================
+import { Component, OnInit } from '@angular/core';
+import { AuthService } from '../../services/auth.service';
+import { WalletService } from '../../services/wallet.service';
+import { ApiService } from '../../services/api.service';
+
+@Component({
+  selector: 'app-dashboard',
+  templateUrl: './dashboard.component.html',
+  styleUrls: ['./dashboard.component.scss']
+})
+export class DashboardComponent implements OnInit {
+  user$ = this.auth.currentUser$;
+  wallet$ = this.auth.wallet$;
+  balance$ = this.walletService.balance$;
+  
+  chainInfo: ChainInfo | null = null;
+  recentTransactions: Transaction[] = [];
+  isLoadingTx = false;
+
+  constructor(
+    public auth: AuthService,
+    public walletService: WalletService,
+    private api: ApiService
+  ) {}
+
+  ngOnInit(): void {
+    this.loadChainInfo();
+    this.loadRecentTransactions();
+  }
+
+  loadChainInfo(): void {
+    this.api.getChainInfo().subscribe({
+      next: (info) => this.chainInfo = info
+    });
+  }
+
+  loadRecentTransactions(): void {
+    this.isLoadingTx = true;
+    this.walletService.getTransactionHistory().subscribe({
+      next: (response) => {
+        this.recentTransactions = response.transactions.slice(0, 5);
+        this.isLoadingTx = false;
+      },
+      error: () => this.isLoadingTx = false
+    });
+  }
+
+  copyAddress(): void {
+    const wallet = this.auth.wallet;
+    if (wallet) {
+      navigator.clipboard.writeText(wallet.address);
+    }
+  }
+
+  logout(): void {
+    this.auth.logout();
+  }
+}
+
+
+// ============================================================================
+// src/app/components/dashboard/dashboard.component.html
+// ============================================================================
+/*
+<div class="dashboard">
+  <!-- Header -->
+  <header class="dashboard-header">
+    <div class="logo">
+      <h1>SIFRA Wallet</h1>
+    </div>
+    <div class="user-info">
+      <span *ngIf="user$ | async as user">{{ user.username }}</span>
+      <button class="btn-logout" (click)="logout()">Logout</button>
+    </div>
+  </header>
+  
+  <!-- Main Content -->
+  <main class="dashboard-content">
+    <!-- Wallet Card -->
+    <div class="wallet-card">
+      <div class="balance-section">
+        <span class="label">Your Balance</span>
+        <h2 class="balance">{{ balance$ | async }} SIFRA</h2>
+      </div>
+      
+      <div class="address-section" *ngIf="wallet$ | async as wallet">
+        <span class="label">Wallet Address</span>
+        <div class="address-display">
+          <span class="address">{{ wallet.address | slice:0:20 }}...{{ wallet.address | slice:-10 }}</span>
+          <button class="btn-copy" (click)="copyAddress()">📋</button>
+        </div>
+      </div>
+      
+      <div class="actions">
+        <a routerLink="/send" class="btn-primary">Send SIFRA</a>
+        <a routerLink="/transactions" class="btn-secondary">View History</a>
+      </div>
+    </div>
+    
+    <!-- Network Stats -->
+    <div class="stats-card" *ngIf="chainInfo">
+      <h3>Network Stats</h3>
+      <div class="stats-grid">
+        <div class="stat">
+          <span class="value">{{ chainInfo.block_count }}</span>
+          <span class="label">Blocks</span>
+        </div>
+        <div class="stat">
+          <span class="value">{{ chainInfo.transaction_count }}</span>
+          <span class="label">Transactions</span>
+        </div>
+        <div class="stat">
+          <span class="value">{{ chainInfo.wallet_count }}</span>
+          <span class="label">Wallets</span>
+        </div>
+        <div class="stat">
+          <span class="value">{{ chainInfo.pending_transactions }}</span>
+          <span class="label">Pending</span>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Recent Transactions -->
+    <div class="transactions-card">
+      <h3>Recent Transactions</h3>
+      
+      <div class="loading" *ngIf="isLoadingTx">Loading...</div>
+      
+      <div class="no-transactions" *ngIf="!isLoadingTx && recentTransactions.length === 0">
+        No transactions yet
+      </div>
+      
+      <div class="transaction-list" *ngIf="!isLoadingTx && recentTransactions.length > 0">
+        <div class="transaction-item" *ngFor="let tx of recentTransactions">
+          <div class="tx-icon" [class.sent]="tx.sender === (wallet$ | async)?.address">
+            {{ tx.sender === (wallet$ | async)?.address ? '↑' : '↓' }}
+          </div>
+          <div class="tx-details">
+            <span class="tx-type">
+              {{ tx.sender === (wallet$ | async)?.address ? 'Sent' : 'Received' }}
+            </span>
+            <span class="tx-hash">{{ tx.tx_hash | slice:0:16 }}...</span>
+          </div>
+          <div class="tx-amount" [class.negative]="tx.sender === (wallet$ | async)?.address">
+            {{ tx.sender === (wallet$ | async)?.address ? '-' : '+' }}{{ tx.amount }} SIFRA
+          </div>
+        </div>
+      </div>
+      
+      <a routerLink="/transactions" class="view-all">View All Transactions →</a>
+    </div>
+  </main>
+</div>
+*/
+
+
+================================================================================
+6. MODELS/INTERFACES
+================================================================================
+
+// ============================================================================
+// src/app/models/interfaces.ts
+// ============================================================================
+
+// Auth Interfaces
+export interface SignupRequest {
+  username: string;
+  email: string;
+  password: string;
+  confirm_password: string;
+}
+
+export interface SignupResponse {
+  message: string;
+  user: User;
+  wallet: {
+    address: string;
+    public_key: string;
+    private_key: string;
+    mnemonic: string;
+  };
+  warning: string;
+}
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  message: string;
+  user: User;
+  wallet: {
+    address: string;
+    balance: string;
+  };
+}
+
+export interface User {
+  id: number;
+  username: string;
+  email: string;
+}
+
+export interface UserResponse {
+  user: User;
+  wallet: {
+    address: string;
+    balance: string;
+    created_at: string;
+  };
+}
+
+export interface RecoverResponse {
+  message: string;
+  public_key: string;
+  private_key: string;
+  wallet_exists: boolean;
+  balance?: string;
+}
+
+// Wallet Interfaces
+export interface WalletCredentials {
+  address: string;
+}
+
+export interface WalletInfo {
+  address: string;
+  balance: string;
+  created_at: string;
+}
+
+export interface BalanceResponse {
+  address: string;
+  balance: string;
+}
+
+export interface KeypairResponse {
+  private_key: string;
+  public_key: string;
+  warning: string;
+}
+
+// Transaction Interfaces
+export interface TransactionRequest {
+  sender: string;
+  receiver: string;
+  amount: string;
+  signature: string;
+}
+
+export interface TransactionResponse {
+  tx_hash: string;
+  status: string;
+  sender: string;
+  receiver: string;
+  amount: string;
+  message: string;
+}
+
+export interface Transaction {
+  tx_hash: string;
+  sender: string;
+  receiver: string;
+  amount: string;
+  status: 'pending' | 'confirmed';
+  timestamp: string;
+  signature?: string;
+}
+
+export interface WalletTransactionsResponse {
+  address: string;
+  transaction_count: number;
+  transactions: Transaction[];
+}
+
+export interface PendingTransactionsResponse {
+  count: number;
+  transactions: Transaction[];
+}
+
+// Blockchain Interfaces
+export interface ChainInfo {
+  block_count: number;
+  transaction_count: number;
+  pending_transactions: number;
+  confirmed_transactions: number;
+  wallet_count: number;
+  latest_block_index: number;
+  latest_block_hash: string;
+  genesis_supply: string;
+}
+
+export interface Block {
+  index: number;
+  hash: string;
+  previous_hash: string;
+  nonce: number;
+  timestamp: string;
+  is_genesis: boolean;
+  transactions_count: number;
+  transactions: Transaction[];
+}
+
+export interface ChainResponse {
+  length: number;
+  chain: Block[];
+}
+
+export interface ValidationResponse {
+  valid: boolean;
+  error: string | null;
+  message: string;
+  blocks_checked: number;
+}
+
+export interface MineResponse {
+  message: string;
+  block_index: number;
+  block_hash: string;
+  previous_hash: string;
+  nonce: number;
+  timestamp: string;
+  transactions_count: number;
+  transactions: Transaction[];
+}
+
+
+================================================================================
+7. APP ROUTING MODULE
+================================================================================
+
+// ============================================================================
+// src/app/app-routing.module.ts
+// ============================================================================
+import { NgModule } from '@angular/core';
+import { RouterModule, Routes } from '@angular/router';
+import { AuthGuard } from './guards/auth.guard';
+
+// Components
+import { LoginComponent } from './components/login/login.component';
+import { SignupComponent } from './components/signup/signup.component';
+import { RecoverKeyComponent } from './components/recover-key/recover-key.component';
+import { DashboardComponent } from './components/dashboard/dashboard.component';
+import { SendTransactionComponent } from './components/send-transaction/send-transaction.component';
+import { TransactionHistoryComponent } from './components/transaction-history/transaction-history.component';
+
+const routes: Routes = [
+  { path: '', redirectTo: '/dashboard', pathMatch: 'full' },
+  { path: 'login', component: LoginComponent },
+  { path: 'signup', component: SignupComponent },
+  { path: 'recover', component: RecoverKeyComponent },
+  { 
+    path: 'dashboard', 
+    component: DashboardComponent,
+    canActivate: [AuthGuard]
+  },
+  { 
+    path: 'send', 
+    component: SendTransactionComponent,
+    canActivate: [AuthGuard]
+  },
+  { 
+    path: 'transactions', 
+    component: TransactionHistoryComponent,
+    canActivate: [AuthGuard]
+  },
+  { path: '**', redirectTo: '/dashboard' }
+];
+
+@NgModule({
+  imports: [RouterModule.forRoot(routes)],
+  exports: [RouterModule]
+})
+export class AppRoutingModule { }
+
+
+================================================================================
+8. APP MODULE
+================================================================================
+
+// ============================================================================
+// src/app/app.module.ts
+// ============================================================================
+import { NgModule } from '@angular/core';
+import { BrowserModule } from '@angular/platform-browser';
+import { HttpClientModule, HTTP_INTERCEPTORS } from '@angular/common/http';
+import { ReactiveFormsModule, FormsModule } from '@angular/forms';
+import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
+
+import { AppRoutingModule } from './app-routing.module';
+import { AppComponent } from './app.component';
+
+// Interceptors
+import { AuthInterceptor } from './interceptors/auth.interceptor';
+
+// Components
+import { LoginComponent } from './components/login/login.component';
+import { SignupComponent } from './components/signup/signup.component';
+import { RecoverKeyComponent } from './components/recover-key/recover-key.component';
+import { DashboardComponent } from './components/dashboard/dashboard.component';
+import { SendTransactionComponent } from './components/send-transaction/send-transaction.component';
+import { TransactionHistoryComponent } from './components/transaction-history/transaction-history.component';
+
+@NgModule({
+  declarations: [
+    AppComponent,
+    LoginComponent,
+    SignupComponent,
+    RecoverKeyComponent,
+    DashboardComponent,
+    SendTransactionComponent,
+    TransactionHistoryComponent
+  ],
+  imports: [
+    BrowserModule,
+    AppRoutingModule,
+    HttpClientModule,
+    ReactiveFormsModule,
+    FormsModule,
+    BrowserAnimationsModule
+  ],
+  providers: [
+    {
+      provide: HTTP_INTERCEPTORS,
+      useClass: AuthInterceptor,
+      multi: true
+    }
+  ],
+  bootstrap: [AppComponent]
+})
+export class AppModule { }
+
+
+================================================================================
+9. STYLING (SCSS)
+================================================================================
+
+// ============================================================================
+// src/styles.scss (Global Styles)
+// ============================================================================
+/*
+:root {
+  --primary-color: #6366f1;
+  --primary-hover: #4f46e5;
+  --success-color: #10b981;
+  --warning-color: #f59e0b;
+  --danger-color: #ef4444;
+  --bg-dark: #0f172a;
+  --bg-card: #1e293b;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --border-color: #334155;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+.btn-primary {
+  background: var(--primary-color);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+
+  &:hover:not(:disabled) {
+    background: var(--primary-hover);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--primary-color);
+  border: 1px solid var(--primary-color);
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+
+  &:hover {
+    background: rgba(99, 102, 241, 0.1);
+  }
+}
+
+.form-group {
+  margin-bottom: 20px;
+
+  label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+
+  input, textarea {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 16px;
+
+    &:focus {
+      outline: none;
+      border-color: var(--primary-color);
+    }
+
+    &::placeholder {
+      color: var(--text-secondary);
+    }
+  }
+
+  .error {
+    color: var(--danger-color);
+    font-size: 12px;
+    margin-top: 4px;
+    display: block;
+  }
+}
+
+.error-message {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger-color);
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.success-message {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--success-color);
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.warning-box {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--warning-color);
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--warning-color);
+  margin-bottom: 20px;
+}
+
+// Mnemonic Modal Styles
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.mnemonic-modal {
+  background: var(--bg-card);
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+
+  .warning-header {
+    text-align: center;
+    margin-bottom: 24px;
+    
+    .warning-icon {
+      font-size: 48px;
+      display: block;
+      margin-bottom: 16px;
+    }
+
+    h2 {
+      color: var(--warning-color);
+    }
+  }
+
+  .mnemonic-words {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin: 20px 0;
+
+    .word {
+      background: var(--bg-dark);
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+      font-family: monospace;
+    }
+  }
+
+  .private-key-display,
+  .address-display {
+    background: var(--bg-dark);
+    padding: 16px;
+    border-radius: 8px;
+    word-break: break-all;
+    font-family: monospace;
+    font-size: 12px;
+    margin: 12px 0;
+  }
+
+  .btn-copy {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-top: 8px;
+
+    &:hover {
+      background: var(--bg-dark);
+    }
+  }
+
+  .confirmation-section {
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border-color);
+
+    .checkbox-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      cursor: pointer;
+    }
+  }
+}
+*/
+
+
+================================================================================
+10. IMPORTANT NOTES & SECURITY REMINDERS
+================================================================================
+
+⚠️ CRITICAL SECURITY NOTES:
+
+1. PRIVATE KEY HANDLING:
+   - Private keys should NEVER be sent to the server
+   - Transaction signing happens CLIENT-SIDE using the elliptic library
+   - The backend only verifies signatures, never sees private keys
+
+2. MNEMONIC PHRASE:
+   - Shown ONLY ONCE during signup
+   - NEVER stored on server or in localStorage
+   - User MUST save it securely - this is their ONLY recovery method
+
+3. LOCAL STORAGE:
+   - Only wallet ADDRESS is stored (public info)
+   - Private key should be entered by user when needed for transactions
+   - Session data is cleared on logout
+
+4. FOR PRODUCTION:
+   - Use HTTPS everywhere
+   - Implement rate limiting
+   - Consider using a hardware wallet integration
+   - Add 2FA for sensitive operations
+   - Implement proper CSP headers
+
+5. DEPENDENCIES TO INSTALL:
+   npm install elliptic @types/elliptic  # For client-side transaction signing
+
+================================================================================
+END OF IMPLEMENTATION GUIDE
+================================================================================

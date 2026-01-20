@@ -1,26 +1,48 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { HeaderComponent } from './layouts/header/header';
+import { SidebarComponent } from './layouts/sidebar/sidebar';
+import { AuthService } from './core/services/auth.service';
 
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterOutlet, HeaderComponent],
+  imports: [RouterOutlet, SidebarComponent],
   template: `
-    <app-header />
-    <main>
+    @if (showSidebar()) {
+    <app-sidebar />
+    }
+    <main class="main-content" [class.with-sidebar]="showSidebar()">
       <router-outlet />
     </main>
   `,
-  styles: [`
-    :host {
-      display: block;
-      min-height: 100vh;
-    }
+  styles: [
+    `
+      :host {
+        display: block;
+        min-height: 100vh;
+      }
 
-    main {
-      flex: 1;
-    }
-  `]
+      .main-content {
+        min-height: 100vh;
+        transition: margin-left var(--transition-normal);
+      }
+
+      .main-content.with-sidebar {
+        margin-left: 240px;
+      }
+
+      @media (max-width: 768px) {
+        .main-content.with-sidebar {
+          margin-left: 0;
+          padding-bottom: 80px;
+        }
+      }
+    `,
+  ],
 })
-export class App {}
+export class App {
+  private readonly authService = inject(AuthService);
+
+  // Show sidebar when user is authenticated
+  protected readonly showSidebar = computed(() => this.authService.isAuthenticated());
+}
